@@ -276,12 +276,16 @@ execute_action_inner(Controller, Action, Tokens, Location, AppInfo,
     {ActionResult, RequestContext3}     = apply_action(Req, Adapter,
                                                        AdapterInfo,
                                                        RequestContext2),
+    {PostActionResult, RequestContext4} = apply_post_action_filter(Adapter,
+                                                                   AdapterInfo,
+                                                                   RequestContext3,
+                                                                   ActionResult),
     RenderedResult                      = boss_web_controller_render:render_result(Location, AppInfo, RequestContext,
                                                                                    LocationTrail, Adapter, AdapterInfo,
-                                                                                   ActionResult, RequestContext3),
+                                                                                   PostActionResult, RequestContext4),
     FinalResult                         = apply_after_filters(Adapter,
                                                               AdapterInfo,
-                                                              RequestContext3,
+                                                              RequestContext4,
                                                               RenderedResult),
     {FinalResult, SessionID1}.
 
@@ -370,6 +374,21 @@ apply_before_filters(Adapter, AdapterInfo, RequestContext) ->
         Other ->
             {not_ok, RequestContext, Other}
     end.
+
+apply_post_action_filter(Adapter, AdapterInfo, RequestContext, ActionResult) ->
+    GlobalFilters = filters_for_function('post_action_filter'),
+    ActionFilters = Adapter:filters('post_action', AdapterInfo, RequestContext, GlobalFilters),
+
+    % new API only
+    lists:foldl(fun
+            (Filter, Rendered) when is_atom(Filter) ->
+                {FilterKey, DefaultConfig} = filter_config(Filter),
+                FilterConfig = Adapter:filter_config(AdapterInfo, FilterKey, DefaultConfig, RequestContext),
+                case proplists:get_value(post_action_filter, Filter:module_info(exports)) of
+                    3 -> Filter:post_action_filter(Rendered, FilterConfig, RequestContext);
+                    _ -> Rendered
+                end
+        end, ActionResult, ActionFilters).
 
 apply_after_filters(Adapter, AdapterInfo, RequestContext, RenderedResult) ->
     GlobalFilters = filters_for_function('after_filter'),
